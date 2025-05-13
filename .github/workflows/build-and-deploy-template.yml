@@ -1,0 +1,81 @@
+name: Build and Deploy Template
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        required: true
+        type: string
+    secrets:
+      DOCKER_USERNAME:
+        required: true
+      DOCKER_PASSWORD:
+        required: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed apps
+        id: detect_apps
+        run: |
+          mode="${{ inputs.mode }}"
+          echo "Selected mode: $mode"
+
+          all_apps="agent ui"
+
+          if [ "$mode" == "full" ]; then
+            apps="$all_apps"
+            echo "Full mode: building all apps."
+          else
+            previous_commit=$(git rev-parse HEAD~1)
+            latest_commit=$(git rev-parse HEAD)
+
+            echo "Checking changes between $previous_commit and $latest_commit"
+
+            changed_folders=$(git diff --name-only $previous_commit $latest_commit | cut -d/ -f1 | sort -u)
+            echo "Changed folders: $changed_folders"
+
+            changed_apps=""
+            for folder in $changed_folders; do
+              if [[ "$folder" != ".github" && "$folder" != "" ]]; then
+                if echo "$all_apps" | grep -qw "$folder"; then
+                  changed_apps="$changed_apps $folder"
+                fi
+              fi
+            done
+
+            apps=$(echo "$changed_apps" | xargs)
+            if [ -z "$apps" ]; then
+              echo "No app changes detected."
+            else
+              echo "Incremental mode: changed apps = $apps"
+            fi
+          fi
+
+          echo "apps=$apps" >> $GITHUB_ENV
+
+      - name: Build Docker images
+        if: ${{ env.apps != '' }}
+        run: |
+          for app in $apps; do
+            echo "🔨 Building image for $app"
+            docker build -t tejkumar11111/$app:latest $app
+          done
+
+      - name: Push Docker images
+        if: ${{ env.apps != '' }}
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        run: |
+          echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+          for app in $apps; do
+            echo "📤 Pushing $app to registry"
+            docker push tejkumar11111/$app:latest
+          done
