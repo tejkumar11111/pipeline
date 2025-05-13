@@ -68,6 +68,13 @@ jobs:
             echo "🔨 Building image for $app"
             docker build -t tejkumar11111/$app:latest $app
           done
+      - name: Run Hadolint on Dockerfiles
+        if: ${{ env.apps != '' }}
+        run: |
+          for app in $apps; do
+            echo "🛠️ Checking Dockerfile for $app with Hadolint"
+            hadolint $app/Dockerfile
+          done
 
       - name: Push Docker images
         if: ${{ env.apps != '' }}
